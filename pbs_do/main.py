@@ -8,7 +8,6 @@ import re
 
 PBS_COUNT = 0
 
-
 def grouper(iterable, n):
     ''' Iterate through `iterable` in groups of `n` elements. '''
     l = len(iterable)
@@ -25,7 +24,7 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
     Parameters
     ----------
     command: str
-        Command execute.
+        Command to execute.
     initial_args: str
         Initial arguments to supply to command.
     mem: int
@@ -206,9 +205,9 @@ def process_args(args: argparse.Namespace) -> list:
 
 
 def main():
-
     parser = argparse.ArgumentParser(prog = 'pbs_do',
-                                     description = 'Create PBS jobs from the standard input.')
+                                     description = 'Create PBS jobs from the standard input.',
+                                     usage='%(prog)s [options] command [initial-arguments ...]')
 
     parser.add_argument("command", action="store", type=str, nargs=argparse.REMAINDER)
 
