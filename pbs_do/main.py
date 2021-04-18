@@ -8,23 +8,95 @@ import re
 
 PBS_COUNT = 0
 
-def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list):
+
+def grouper(iterable, n):
+    ''' Iterate through `iterable` in groups of `n` elements. '''
+    l = len(iterable)
+    for ndx in range(0, l, n):
+        yield iterable[ndx:min(ndx + n, l)]
+
+
+
+def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
+            nArgs=1, n_child_proc=None, replace_str=None, shell='/bin/tcsh',
+            writeStdout=False, verbose=False):
+    '''
+    Create PBS file for command.
+
+    Parameters
+    ----------
+    command: str
+        Command execute.
+    initial_args: str
+        Initial arguments to supply to command.
+    mem: int
+        Memory to request in gb.
+    ppn: int
+        Processors per node.
+    walltime: str
+        Wall time in the format hh:mm:ss
+    wd: str
+        Parent directory for PBS file.
+    arg_list: list
+        List of arguments to supply to `command`
+    nArgs: int
+        Number of arguments to supply to each call to `command`
+        Default is 1.
+    n_child_proc: int
+        Number of child procecies to spawn. If None, this is the same as `ppn`
+    replace_str: str
+        A String to replace with arguments in `initial_arguments` instead of
+        appending to end of command. Default is None.
+    shell: str
+        Path to shell to use in PBS file. Default is /bin/tcsh
+    writeStdout: bool
+        Write stdout text file for each process? Default is False.
+    verbose: bool
+        Verbose output? Default is False'
+
+    Returns
+    -------
+    pbsName: str
+        Name of PBS file created.
+    '''
+
     global PBS_COUNT
     pbsName = '{}_{}.pbs'.format(command, PBS_COUNT)
-    _fileLists = getFileLists(ppn, fileList, check=False)
+    n_child_proc = ppn if n_child_proc is None else n_child_proc
+    _arg_lists = getFileLists(n_child_proc, arg_list, check=False)
 
-    if len(_fileLists) < ppn:
-        ppn = len(_fileLists)
+    if len(_arg_lists) < n_child_proc:
+        n_child_proc = len(_arg_lists)
 
     with open(pbsName, 'w') as outF:
-        outF.write("#!/bin/bash\n")
+        outF.write('#!{}\n'.format(shell))
         outF.write('#PBS -l mem={}gb,nodes=1:ppn={},walltime={}\n\n'.format(mem, ppn, walltime))
         outF.write('cd {}\n'.format(wd))
         
-        for i, l in enumerate(_fileLists):
-            outF.write('; '.join(['{} -i {}'.format(RAW_EXTRACT_COMMAND, x) for x in l]))
-            outF.write(' > stdout_{}_{}.txt &\n'.format(PBS_COUNT, i))
-        outF.write('wait\n')
+        _command_sep = '' if initial_args == '' else ' '
+        for i, _arg_list in enumerate(_arg_lists):
+            _commands = list()
+            for arg_group in grouper(_arg_list, nArgs):
+                _initial_args = initial_args
+                args = ' '.join(arg_group)
+                if replace_str:
+                    _initial_args = _initial_args.replace(replace_str, args, 1)
+                    if _initial_args.find(replace_str) != -1:
+                        raise RuntimeError('In string: {}\nOnly one argument substitution allowed!'.format(initial_args))
+                    _commands.append('{} {}'.format(command, _initial_args))
+                else:
+                    _commands.append('{} {}{}{}'.format(command, _initial_args, _command_sep, args))
+            _command = '; '.join(_commands)
+            if writeStdout:
+                _command += ' > stdout_{}_{}.txt'.format(PBS_COUNT, i)
+            _command += ' &\n' if n_child_proc > 1 else '\n'
+            outF.write(_command)
+
+            if verbose:
+                sys.stdout.write(_command)
+
+        if n_child_proc > 1:
+            outF.write('wait\n')
 
     PBS_COUNT += 1
     return pbsName
@@ -36,7 +108,7 @@ def getPlurality(num):
     else: return ''
 
 
-def getFileLists(nProc, fileList, check=True):
+def getFileLists(nProc: int, arg_list: list, check=True) -> list:
     '''
     Get input file names and split into a list for each subprocess.
 
@@ -44,7 +116,7 @@ def getFileLists(nProc, fileList, check=True):
     ----------
     nProc: int
         Number of processes per job.
-    fileList: list
+    arg_list: list
         list of files.
     check: bool
         Should files in list be checked to see if they exist?
@@ -57,7 +129,7 @@ def getFileLists(nProc, fileList, check=True):
     # check file list
     if check:
         _exit = False
-        for f in fileList:
+        for f in arg_list:
             if not os.path.exists(f):
                 sys.stderr.write('{} does not exist.\n'.format(f))
                 _exit = True
@@ -65,29 +137,29 @@ def getFileLists(nProc, fileList, check=True):
             sys.exit(-1)
 
     #calculate number of files per thread
-    nFiles = len(fileList)
-    filesPerProcess = nFiles // nProc
-    if nFiles % nProc != 0:
+    nArgs = len(arg_list)
+    filesPerProcess = nArgs // nProc
+    if nArgs % nProc != 0:
         filesPerProcess += 1
 
-    #split up fileList
+    #split up arg_list
     ret = list()
     i = 0
-    while(i < nFiles):
+    while(i < nArgs):
         # get beginning and end indecies
         begNum = i
         endNum = begNum + filesPerProcess
-        if endNum > nFiles:
-            endNum = nFiles
+        if endNum > nArgs:
+            endNum = nArgs
 
-        ret.append(fileList[begNum:endNum])
+        ret.append(arg_list[begNum:endNum])
         i += filesPerProcess
 
     fileSet = set()
     for i in ret:
         for j in i:
             fileSet.add(j)
-    assert(len(fileSet) == len(fileList))
+    assert(len(fileSet) == len(arg_list))
 
     return ret
 
@@ -133,12 +205,13 @@ def process_args(args: argparse.Namespace) -> list:
 
     return {'command': command, 'initial_arguments': initial_arguments, 'args': _args}
 
+
 def main():
 
     parser = argparse.ArgumentParser(prog = 'pbs_do',
                                      description = 'Create PBS jobs from the standard input.')
 
-    parser.add_argument("command", action="store", default=['/bin/echo'], type=str, nargs=argparse.REMAINDER)
+    parser.add_argument("command", action="store", type=str, nargs=argparse.REMAINDER)
 
     parser.add_argument("-a" '--arg-file', default=None, type=str, metavar='file', action='store', dest='arg_file',
                         help='Read items from file instead of standard input.')
@@ -152,21 +225,33 @@ def main():
                         help="omit inputs matching regex instead")
     parser.add_argument('--deliminator', default=r'\s+', metavar='regex',
                         help='Deliminator used to tokenize input. Default is the regex "\s+".')
-    parser.add_argument('-n', '--max-args', default=0, type=int, action='store', dest='max_args',
+    parser.add_argument('-n', '--max-args', default=1, type=int, action='store', dest='max_args',
                         help='Use at most max-args arguments per command line.')
+    parser.add_argument('--noArgs', action='store_true', default=False,
+                        help='Don\'t read arguments from stdin. Just construct pbs file from command.')
+    parser.add_argument('-f' '--dontCheck', action='store_false', default=True, dest='check_files',
+                        help='Skip check that each argument is a file that exists.')
 
     parser.add_argument('-g', '--go', action = 'store_true', default = False,
-                        help = 'Should jobs be submitted? If this flag is not supplied, program will be a dry run. '
-                               'Required system resources will be printed but jobs will not be submitted.')
+                        help='Should jobs be submitted? If this flag is not supplied, program will be a dry run. '
+                             'Required system resources will be printed but jobs will not be submitted.')
 
-    parser.add_argument('-v', '--verbose', action = 'store_true', default = False,
+    parser.add_argument('--writeStdout', action = 'store_true', default=False,
+                        help = 'Write text file with stdout for each process?')
+    parser.add_argument('-v', '--verbose', action = 'store_true', default=False,
                         help = 'Verbose output.')
 
-    parser.add_argument('-j', '--nJob', type=int, default = 1,
+    parser.add_argument('-j', '--nJob', type=int, default=1,
                         help='Specify number of jobs to split into.')
+    parser.add_argument('--shell', default=os.environ['SHELL'],
+                        help='Specify the shell to use in PBS files. Default is the value of $SHELL')
 
-    parser.add_argument('-p', '--ppn', default=4, type=int,
-                        help='Number of processors to allocate per PBS job. Default is 4.')
+    parser.add_argument('-P', '--nProc', default=None, type=int, dest='n_child_proc',
+                        help='Number of child procecies to create in each PBS job. Unless specified, '
+                             'this is the same as the value used for ppn.')
+    parser.add_argument('-p', '--ppn', default=None, type=int,
+                        help='Number of processors to request per PBS job. Default is the smaller of '
+                             '4 and the number of args.')
 
     parser.add_argument('-m', '--mem', default=None, type = int,
                         help = 'Amount of memory to allocate per PBS job in gb. '
@@ -192,51 +277,53 @@ def main():
                 return -1
         db.set_trace()
 
-    process_args(args)
+    command_dict = process_args(args)
 
-    # nFiles = len(args.raw_files)
-    # fileLists = getFileLists(args.nJob, args.raw_files)
+    nArgs = len(command_dict['args'])
+    arg_lists = getFileLists(args.nJob, command_dict['args'], check=args.check_files)
 
-    # wd = os.getcwd()
-    # ppn = args.ppn
-    # mem = args.mem
-    # if mem is None:
-    #     mem = int(4 * ppn)
+    wd = os.getcwd()
+    ppn = min(4, nArgs) if args.ppn is None else args.ppn
+    n_child_proc = ppn if args.n_child_proc is None else args.n_child_proc
+    mem = int(4 * ppn) if args.mem is None else args.mem
 
-    # #print summary of resources needed
-    # sys.stdout.write('\nRequested {} job{} with {} processor{} and {} gb memory each...\n'.format(args.nJob,
-    #                                                                                               getPlurality(args.nJob),
-    #                                                                                               args.ppn,
-    #                                                                                               getPlurality(args.ppn),
-    #                                                                                               mem))
-    # # check that requested memory is valid
-    # if mem > 180 or mem < 1:
-    #     sys.stderr.write('{} is an invalid ammount of job memory!\nExiting...\n'.format(mem))
-    #     exit()
+    #print summary of resources needed
+    sys.stdout.write('\nRequested {} job{} with {} processor{} and {} gb memory each...\n'.format(args.nJob,
+                                                                                                  getPlurality(args.nJob),
+                                                                                                  ppn,
+                                                                                                  getPlurality(ppn),
+                                                                                                  mem))
+    # check that requested memory is valid
+    if mem > 180 or mem < 1:
+        sys.stderr.write('{} is an invalid ammount of job memory!\nExiting...\n'.format(mem))
+        sys.exit(-1)
 
-    # sys.stdout.write('\t{} raw file{}\n'.format(nFiles, getPlurality(nFiles)))
-    # if nFiles == 0:
-    #     sys.stderr.write('No raw files specified!\nExiting...\n')
-    #     exit()
+    sys.stdout.write('\t{} argument{}\n'.format(nArgs, getPlurality(nArgs)))
+    if nArgs == 0:
+        sys.stderr.write('No arguments specified!\nExiting...\n')
+        sys.exit(-1)
 
-    # filesPerJob = max([len(x) for x in fileLists])
-    # sys.stdout.write('\t{} job{} needed\n'.format(len(fileLists), getPlurality(len(fileLists))))
-    # sys.stdout.write('\t{} file{} per job\n'.format(filesPerJob, getPlurality(filesPerJob)))
+    filesPerJob = max([len(x) for x in arg_lists])
+    sys.stdout.write('\t{} job{} needed\n'.format(len(arg_lists), getPlurality(len(arg_lists))))
+    sys.stdout.write('\t{} file{} per job\n'.format(filesPerJob, getPlurality(filesPerJob)))
 
-    # if filesPerJob < ppn:
-    #     ppn = filesPerJob
-    # sys.stdout.write('\t{} processor{} per job\n'.format(ppn, getPlurality(ppn)))
-    # filesPerProcess = int(ceil(float(filesPerJob) / float(ppn)))
-    # sys.stdout.write('\t{} file{} per process\n'.format(ceil(filesPerProcess), getPlurality(filesPerProcess)))
+    if filesPerJob < ppn:
+        ppn = filesPerJob
+    sys.stdout.write('\t{} processor{} per job\n'.format(ppn, getPlurality(ppn)))
+    filesPerProcess = int(ceil(float(filesPerJob) / float(ppn)))
+    sys.stdout.write('\t{} argument{} per process\n'.format(ceil(filesPerProcess), getPlurality(filesPerProcess)))
 
-    # for i, fileList in enumerate(fileLists):
-    #     pbsName = makePBS(mem, args.ppn, args.walltime, wd, fileList)
-    #     command = 'qsub {}'.format(pbsName)
-    #     if args.verbose:
-    #         sys.stdout.write('{}\n'.format(command))
-    #     if args.go:
-    #         proc = subprocess.Popen([command], cwd=wd, shell=True)
-    #         proc.wait()
+    for i, arg_list in enumerate(arg_lists):
+        pbsName = makePBS(command_dict['command'], command_dict['initial_arguments'],
+                          mem, ppn, args.walltime, wd, arg_list,
+                          nArgs=args.max_args, n_child_proc=n_child_proc, replace_str=args.replace_str,
+                          writeStdout=args.writeStdout, verbose=args.verbose)
+        command = 'qsub {}'.format(pbsName)
+        if args.verbose:
+            sys.stdout.write('{}\n'.format(command))
+        if args.go:
+            proc = subprocess.Popen([command], cwd=wd, shell=True)
+            proc.wait()
 
 if __name__ == '__main__':
     main()
