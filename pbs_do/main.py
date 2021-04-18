@@ -16,7 +16,6 @@ def grouper(iterable, n):
         yield iterable[ndx:min(ndx + n, l)]
 
 
-
 def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
             nArgs=1, n_child_proc=None, replace_str=None, shell='/bin/tcsh',
             writeStdout=False, verbose=False):
@@ -61,7 +60,7 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
     '''
 
     global PBS_COUNT
-    pbsName = '{}_{}.pbs'.format(command, PBS_COUNT)
+    pbsName = '{}_{}.pbs'.format(os.path.splitext(os.path.basename(command))[0], PBS_COUNT)
     n_child_proc = ppn if n_child_proc is None else n_child_proc
     _arg_lists = getFileLists(n_child_proc, arg_list, check=False)
 
@@ -324,6 +323,7 @@ def main():
         if args.go:
             proc = subprocess.Popen([command], cwd=wd, shell=True)
             proc.wait()
+
 
 if __name__ == '__main__':
     main()
