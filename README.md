@@ -1,7 +1,7 @@
 # pbs_do
 Create PBS jobs from the standard input.
 
-The inspiration for  `pbs_do` is the unix `xargs` command. `pbs_do` reads a list of arguments from the standard input, deliminated by blanks and creates zPBS file(s) to process each argument with a user specified `command`. Various options are available to specify the compute resources to request for each job as well as to manage parallel processing whithin jobs.
+The inspiration for  `pbs_do` is the unix `xargs` command. `pbs_do` reads a list of arguments from the standard input, deliminated by blanks and creates a PBS file(s) to process each argument with a user specified `command`. Various options are available to specify the compute resources to request for each job as well as to manage parallel processing whithin jobs.
 
 # Usage
 ```
