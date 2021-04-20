@@ -72,6 +72,7 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
         outF.write('cd {}\n'.format(wd))
         
         _command_sep = '' if initial_args == '' else ' '
+        _command_new_line = '; ' if n_child_proc > 1 else '\n'
         for i, _arg_list in enumerate(_arg_lists):
             _commands = list()
             for arg_group in grouper(_arg_list, nArgs):
@@ -84,7 +85,7 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
                     _commands.append('{} {}'.format(command, _initial_args))
                 else:
                     _commands.append('{} {}{}{}'.format(command, _initial_args, _command_sep, args))
-            _command = '; '.join(_commands)
+            _command = _command_new_line.join(_commands)
             if writeStdout:
                 _command += ' > stdout_{}_{}.txt'.format(PBS_COUNT, i)
             _command += ' &\n' if n_child_proc > 1 else '\n'
@@ -301,15 +302,21 @@ def main():
         sys.stderr.write('No arguments specified!\nExiting...\n')
         sys.exit(-1)
 
-    filesPerJob = max([len(x) for x in arg_lists])
-    sys.stdout.write('\t{} job{} needed\n'.format(len(arg_lists), getPlurality(len(arg_lists))))
-    sys.stdout.write('\t{} file{} per job\n'.format(filesPerJob, getPlurality(filesPerJob)))
+    argPerJob = max([len(x) for x in arg_lists])
+    sys.stdout.write('\t{} job{}\n'.format(len(arg_lists), getPlurality(len(arg_lists))))
+    sys.stdout.write('\t{} file{} per job\n'.format(argPerJob, getPlurality(argPerJob)))
 
-    if filesPerJob < ppn:
-        ppn = filesPerJob
     sys.stdout.write('\t{} processor{} per job\n'.format(ppn, getPlurality(ppn)))
-    filesPerProcess = int(ceil(float(filesPerJob) / float(ppn)))
-    sys.stdout.write('\t{} argument{} per process\n'.format(ceil(filesPerProcess), getPlurality(filesPerProcess)))
+    nPerProcess = float(argPerJob) / float(ppn)
+    if nPerProcess > 1:
+        firstS = 'argument'
+        secondS = 'process'
+    else:
+        firstS = 'process'
+        secondS = 'argument'
+        nPerProcess = 1 / nPerProcess
+    nPerProcess = int(ceil(nPerProcess))
+    sys.stdout.write('\t{} {}{} per {}\n'.format(nPerProcess, firstS, getPlurality(nPerProcess), secondS))
 
     for i, arg_list in enumerate(arg_lists):
         pbsName = makePBS(command_dict['command'], command_dict['initial_arguments'],
