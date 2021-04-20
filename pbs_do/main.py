@@ -17,7 +17,7 @@ def grouper(iterable, n):
 
 def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
             nArgs=1, n_child_proc=None, replace_str=None, shell='/bin/tcsh',
-            writeStdout=False, verbose=False):
+            writeStdout=False, verbose=False, pbsName=None):
     '''
     Create PBS file for command.
 
@@ -51,6 +51,8 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
         Write stdout text file for each process? Default is False.
     verbose: bool
         Verbose output? Default is False'
+    pbsName: str
+        Basename for pbs files. Default is the command name.
 
     Returns
     -------
@@ -59,7 +61,8 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
     '''
 
     global PBS_COUNT
-    pbsName = '{}_{}.pbs'.format(os.path.splitext(os.path.basename(command))[0], PBS_COUNT)
+    pbsName = '{}_{}.pbs'.format(os.path.splitext(os.path.basename(command))[0] if pbsName is None else pbsName,
+                                 PBS_COUNT)
     n_child_proc = ppn if n_child_proc is None else n_child_proc
     _arg_lists = getFileLists(n_child_proc, arg_list, check=False)
 
@@ -79,9 +82,7 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
                 _initial_args = initial_args
                 args = ' '.join(arg_group)
                 if replace_str:
-                    _initial_args = _initial_args.replace(replace_str, args, 1)
-                    if _initial_args.find(replace_str) != -1:
-                        raise RuntimeError('In string: {}\nOnly one argument substitution allowed!'.format(initial_args))
+                    _initial_args = _initial_args.replace(replace_str, args)
                     _commands.append('{} {}'.format(command, _initial_args))
                 else:
                     _commands.append('{} {}{}{}'.format(command, _initial_args, _command_sep, args))
@@ -230,6 +231,8 @@ def main():
                         help='Don\'t read arguments from stdin. Just construct pbs file from command.')
     parser.add_argument('-f' '--dontCheck', action='store_false', default=True, dest='check_files',
                         help='Skip check that each argument is a file that exists.')
+    parser.add_argument('--pbsName', default=None, type=str,
+                        help='Basename for pbs files. Default is the command name.')
 
     parser.add_argument('-g', '--go', action = 'store_true', default = False,
                         help='Should jobs be submitted? If this flag is not supplied, program will be a dry run. '
@@ -322,7 +325,7 @@ def main():
         pbsName = makePBS(command_dict['command'], command_dict['initial_arguments'],
                           mem, ppn, args.walltime, wd, arg_list,
                           nArgs=args.max_args, n_child_proc=n_child_proc, replace_str=args.replace_str,
-                          writeStdout=args.writeStdout, verbose=args.verbose)
+                          writeStdout=args.writeStdout, verbose=args.verbose, pbsName=args.pbsName)
         command = 'qsub {}'.format(pbsName)
         if args.verbose:
             sys.stdout.write('{}\n'.format(command))
