@@ -227,8 +227,6 @@ def main():
                         help='Deliminator used to tokenize input. Default is the regex "\s+".')
     parser.add_argument('-n', '--max-args', default=1, type=int, action='store', dest='max_args',
                         help='Use at most max-args arguments per command line.')
-    parser.add_argument('--noArgs', action='store_true', default=False,
-                        help='Don\'t read arguments from stdin. Just construct pbs file from command.')
     parser.add_argument('-f' '--dontCheck', action='store_false', default=True, dest='check_files',
                         help='Skip check that each argument is a file that exists.')
     parser.add_argument('--pbsName', default=None, type=str,
