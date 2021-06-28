@@ -159,7 +159,8 @@ def getFileLists(nProc: int, arg_list: list, check=True) -> list:
     for i in ret:
         for j in i:
             fileSet.add(j)
-    assert(len(fileSet) == len(arg_list))
+    if len(fileSet) != len(arg_list):
+        raise RuntimeError('Non-unique args in input!')
 
     return ret
 
@@ -227,7 +228,7 @@ def main():
                         help='Deliminator used to tokenize input. Default is the regex "\s+".')
     parser.add_argument('-n', '--max-args', default=1, type=int, action='store', dest='max_args',
                         help='Use at most max-args arguments per command line.')
-    parser.add_argument('-f' '--dontCheck', action='store_false', default=True, dest='check_files',
+    parser.add_argument('-f', '--dontCheck', action='store_false', default=True, dest='check_files',
                         help='Skip check that each argument is a file that exists.')
     parser.add_argument('--pbsName', default=None, type=str,
                         help='Basename for pbs files. Default is the command name.')
