@@ -6,7 +6,7 @@ import subprocess
 from math import ceil
 import re
 
-PBS_COUNT = 0
+LSF_COUNT = 0
 
 def grouper(iterable, n):
     ''' Iterate through `iterable` in groups of `n` elements. '''
@@ -15,11 +15,11 @@ def grouper(iterable, n):
         yield iterable[ndx:min(ndx + n, l)]
 
 
-def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
-            nArgs=1, n_child_proc=None, replace_str=None, shell='/bin/tcsh',
-            writeStdout=False, verbose=False, pbsName=None):
+def makeLSF(command, initial_args, mem, ppn, walltime, wd, arg_list,
+            nArgs=1, n_child_proc=None, replace_str=None, shell='/bin/bash',
+            writeStdout=False, verbose=False, lsfName=None):
     '''
-    Create PBS file for command.
+    Create LSF file for command.
 
     Parameters
     ----------
@@ -34,7 +34,7 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
     walltime: str
         Wall time in the format hh:mm:ss
     wd: str
-        Parent directory for PBS file.
+        Parent directory for LSF file.
     arg_list: list
         List of arguments to supply to `command`
     nArgs: int
@@ -46,32 +46,33 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
         A String to replace with arguments in `initial_arguments` instead of
         appending to end of command. Default is None.
     shell: str
-        Path to shell to use in PBS file. Default is /bin/tcsh
+        Path to shell to use in LSF file. Default is /bin/bash
     writeStdout: bool
         Write stdout text file for each process? Default is False.
     verbose: bool
         Verbose output? Default is False'
-    pbsName: str
-        Basename for pbs files. Default is the command name.
+    lsfName: str
+        Basename for lsf files. Default is the command name.
 
     Returns
     -------
-    pbsName: str
-        Name of PBS file created.
+    lsfName: str
+        Name of LSF file created.
     '''
 
-    global PBS_COUNT
-    pbsName = '{}_{}.pbs'.format(os.path.splitext(os.path.basename(command))[0] if pbsName is None else pbsName,
-                                 PBS_COUNT)
+    global LSF_COUNT
+    lsfName = '{}_{}.sh'.format(os.path.splitext(os.path.basename(command))[0] if lsfName is None else lsfName,
+                                 LSF_COUNT)
     n_child_proc = ppn if n_child_proc is None else n_child_proc
     _arg_lists = getFileLists(n_child_proc, arg_list, check=False)
 
     if len(_arg_lists) < n_child_proc:
         n_child_proc = len(_arg_lists)
 
-    with open(pbsName, 'w') as outF:
+    with open(lsfName, 'w') as outF:
         outF.write('#!{}\n'.format(shell))
-        outF.write('#PBS -l mem={}gb,nodes=1:ppn={},walltime={}\n\n'.format(mem, ppn, walltime))
+        # outF.write('#PBS -l mem={}gb,nodes=1:ppn={},walltime={}\n\n'.format(mem, ppn, walltime))
+	    outF.write('#BSUB -W {} -n {} -R "rusage[mem={}]" -R span[hosts=1]'.format(walltime, ppn, mem))
         outF.write('cd {}\n'.format(wd))
         
         _command_sep = '' if initial_args == '' else ' '
@@ -88,7 +89,7 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
                     _commands.append('{} {}{}{}'.format(command, _initial_args, _command_sep, args))
             _command = _command_new_line.join(_commands)
             if writeStdout:
-                _command += ' > stdout_{}_{}.txt'.format(PBS_COUNT, i)
+                _command += ' > stdout_{}_{}.txt'.format(LSF_COUNT, i)
             _command += ' &\n' if n_child_proc > 1 else '\n'
             outF.write(_command)
 
@@ -98,8 +99,8 @@ def makePBS(command, initial_args, mem, ppn, walltime, wd, arg_list,
         if n_child_proc > 1:
             outF.write('wait\n')
 
-    PBS_COUNT += 1
-    return pbsName
+    LSF_COUNT += 1
+    return lsfName
 
 
 def getPlurality(num):
@@ -208,8 +209,8 @@ def process_args(args: argparse.Namespace) -> list:
 
 
 def main():
-    parser = argparse.ArgumentParser(prog = 'pbs_do',
-                                     description = 'Create PBS jobs from the standard input.',
+    parser = argparse.ArgumentParser(prog = 'lsf_do',
+                                     description = 'Create LSF jobs from the standard input.',
                                      usage='%(prog)s [options] command [initial-arguments ...]')
 
     parser.add_argument("command", action="store", type=str, nargs=argparse.REMAINDER)
@@ -230,8 +231,8 @@ def main():
                         help='Use at most max-args arguments per command line.')
     parser.add_argument('-f', '--dontCheck', action='store_false', default=True, dest='check_files',
                         help='Skip check that each argument is a file that exists.')
-    parser.add_argument('--pbsName', default=None, type=str,
-                        help='Basename for pbs files. Default is the command name.')
+    parser.add_argument('--lsfName', default=None, type=str,
+                        help='Basename for lsf files. Default is the command name.')
 
     parser.add_argument('-g', '--go', action = 'store_true', default = False,
                         help='Should jobs be submitted? If this flag is not supplied, program will be a dry run. '
@@ -245,17 +246,19 @@ def main():
     parser.add_argument('-j', '--nJob', type=int, default=1,
                         help='Specify number of jobs to split into.')
     parser.add_argument('--shell', default=os.environ['SHELL'],
-                        help='Specify the shell to use in PBS files. Default is the value of $SHELL')
+                        help='Specify the shell to use in LSF files. Default is the value of $SHELL')
+    parser.add_argument('-q', '--queue', default='short',
+                        help='Queue to submit job. Default is short.')
 
     parser.add_argument('-P', '--nProc', default=None, type=int, dest='n_child_proc',
-                        help='Number of child procecies to create in each PBS job. Unless specified, '
+                        help='Number of child procecies to create in each LSF job. Unless specified, '
                              'this is the same as the value used for ppn.')
     parser.add_argument('-p', '--ppn', default=None, type=int,
-                        help='Number of processors to request per PBS job. Default is the smaller of '
+                        help='Number of processors to request per LSF job. Default is the smaller of '
                              '4 and the number of args.')
 
     parser.add_argument('-m', '--mem', default=None, type = int,
-                        help = 'Amount of memory to allocate per PBS job in gb. '
+                        help = 'Amount of memory to allocate per LSF job in gb. '
                                'Default is 4 times the number of processors per job.')
 
     parser.add_argument('-w', '--walltime', default='12:00:00',
@@ -321,11 +324,11 @@ def main():
     sys.stdout.write('\t{} {}{} per {}\n'.format(nPerProcess, firstS, getPlurality(nPerProcess), secondS))
 
     for i, arg_list in enumerate(arg_lists):
-        pbsName = makePBS(command_dict['command'], command_dict['initial_arguments'],
+        lsfName = makeLSF(command_dict['command'], command_dict['initial_arguments'],
                           mem, ppn, args.walltime, wd, arg_list,
                           nArgs=args.max_args, n_child_proc=n_child_proc, replace_str=args.replace_str,
-                          writeStdout=args.writeStdout, verbose=args.verbose, pbsName=args.pbsName)
-        command = 'qsub {}'.format(pbsName)
+                          writeStdout=args.writeStdout, verbose=args.verbose, lsfName=args.lsfName)
+        command = 'bsub {}'.format(lsfName)
         if args.verbose:
             sys.stdout.write('{}\n'.format(command))
         if args.go:
