@@ -1,5 +1,6 @@
 # Things I added
 bin/*
+testFiles/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

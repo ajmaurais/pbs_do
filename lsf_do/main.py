@@ -16,7 +16,7 @@ def grouper(iterable, n):
 
 
 def makeLSF(command, initial_args, mem, ppn, walltime, wd, arg_list,
-            nArgs=1, n_child_proc=None, replace_str=None, shell='/bin/bash',
+            nArgs=1, n_child_proc=None, replace_str=None, shell='/bin/bash', queue='short',
             writeStdout=False, verbose=False, lsfName=None):
     '''
     Create LSF file for command.
@@ -28,7 +28,7 @@ def makeLSF(command, initial_args, mem, ppn, walltime, wd, arg_list,
     initial_args: str
         Initial arguments to supply to command.
     mem: int
-        Memory to request in gb.
+        Memory to request in mb.
     ppn: int
         Processors per node.
     walltime: str
@@ -47,6 +47,8 @@ def makeLSF(command, initial_args, mem, ppn, walltime, wd, arg_list,
         appending to end of command. Default is None.
     shell: str
         Path to shell to use in LSF file. Default is /bin/bash
+    queue: str
+        Queue to submit job to.
     writeStdout: bool
         Write stdout text file for each process? Default is False.
     verbose: bool
@@ -71,8 +73,8 @@ def makeLSF(command, initial_args, mem, ppn, walltime, wd, arg_list,
 
     with open(lsfName, 'w') as outF:
         outF.write('#!{}\n'.format(shell))
-        # outF.write('#PBS -l mem={}gb,nodes=1:ppn={},walltime={}\n\n'.format(mem, ppn, walltime))
-	    outF.write('#BSUB -W {} -n {} -R "rusage[mem={}]" -R span[hosts=1]'.format(walltime, ppn, mem))
+        outF.write('#BSUB -W {} -n {} -R "rusage[mem={}]" -R span[hosts=1] -q {} -J {}\n'.format(walltime, ppn, mem, queue, lsfName))
+        outF.write('#BSUB -o stdout.%J.%I -e stderr.%J.%I\n\n')
         outF.write('cd {}\n'.format(wd))
         
         _command_sep = '' if initial_args == '' else ' '
@@ -261,7 +263,7 @@ def main():
                         help = 'Amount of memory to allocate per LSF job in gb. '
                                'Default is 4 times the number of processors per job.')
 
-    parser.add_argument('-w', '--walltime', default='12:00:00',
+    parser.add_argument('-w', '--walltime', default='4:00',
                         help = 'Walltime per job in the format hh:mm:ss. Default is 12:00:00.')
 
     parser.add_argument('--debug', choices=['none', 'pdb', 'pudb'], default='none',
@@ -290,15 +292,16 @@ def main():
     ppn = min(4, nArgs) if args.ppn is None else args.ppn
     n_child_proc = ppn if args.n_child_proc is None else args.n_child_proc
     mem = int(4 * ppn) if args.mem is None else args.mem
+    mem *= 1025 # convert gb to mb
 
     #print summary of resources needed
-    sys.stdout.write('\nRequested {} job{} with {} processor{} and {} gb memory each...\n'.format(args.nJob,
+    sys.stdout.write('\nRequested {} job{} with {} processor{} and {} mb memory each...\n'.format(args.nJob,
                                                                                                   getPlurality(args.nJob),
                                                                                                   ppn,
                                                                                                   getPlurality(ppn),
                                                                                                   mem))
     # check that requested memory is valid
-    if mem > 180 or mem < 1:
+    if mem > 180 * 1024 or mem < 1:
         sys.stderr.write('{} is an invalid ammount of job memory!\nExiting...\n'.format(mem))
         sys.exit(-1)
 
@@ -327,8 +330,9 @@ def main():
         lsfName = makeLSF(command_dict['command'], command_dict['initial_arguments'],
                           mem, ppn, args.walltime, wd, arg_list,
                           nArgs=args.max_args, n_child_proc=n_child_proc, replace_str=args.replace_str,
-                          writeStdout=args.writeStdout, verbose=args.verbose, lsfName=args.lsfName)
-        command = 'bsub {}'.format(lsfName)
+                          writeStdout=args.writeStdout, verbose=args.verbose, lsfName=args.lsfName,
+                          queue=args.queue, shell=args.shell)
+        command = 'bsub < {}'.format(lsfName)
         if args.verbose:
             sys.stdout.write('{}\n'.format(command))
         if args.go:
